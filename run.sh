@@ -1,0 +1,1 @@
+nohup pnpm start --characters="characters/Artist.json,characters/BusinessPerson.json,characters/CharityWorker.json,characters/Dictator.json,characters/Gamer.json,characters/PoliticalActivist.json,characters/Scientist.json,characters/SportsCoach.json,characters/StayAtHomeMom.json,characters/TravelEnthusiast.json" > run_output.log 2>&1 & echo $! > run.pid
