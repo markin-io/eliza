@@ -1,6 +1,7 @@
 import type { UUID, Character } from "@elizaos/core";
 
-const BASE_URL = `http://localhost:${import.meta.env.VITE_SERVER_PORT}`;
+// const BASE_URL = `http://localhost:${import.meta.env.VITE_SERVER_PORT}`;
+const BASE_URL = `http://ec2-18-156-78-210.eu-central-1.compute.amazonaws.com/api`;
 
 const fetcher = async ({
     url,
@@ -58,7 +59,7 @@ const fetcher = async ({
 
             throw new Error(errorMessage);
         }
-            
+
         return resp.json();
     });
 };

@@ -8,6 +8,15 @@ export default defineConfig(({ mode }) => {
     const envDir = path.resolve(__dirname, "..");
     const env = loadEnv(mode, envDir, "");
     return {
+        server: {
+            host: true,
+            allowedHosts: [
+                'ec2-18-156-78-210.eu-central-1.compute.amazonaws.com'
+            ]
+            // Listen on all addresses
+            // OR specify exact address
+            // host: '0.0.0.0',
+        },
         plugins: [
             react(),
             viteCompression({
