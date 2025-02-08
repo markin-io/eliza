@@ -119,7 +119,14 @@ export class DirectClient {
     constructor() {
         elizaLogger.log("DirectClient constructor");
         this.app = express();
-        this.app.use(cors());
+        const corsOptions = {
+            origin: [
+                'http://localhost:3001',
+                'http://ec2-18-156-78-210.eu-central-1.compute.amazonaws.com/'
+            ],
+            credentials: true,
+        };
+        this.app.use(cors(corsOptions));
         this.agents = new Map();
 
         this.app.use(bodyParser.json());

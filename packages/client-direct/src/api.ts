@@ -1,5 +1,6 @@
 import express from "express";
 import bodyParser from "body-parser";
+import Session from "express-session";
 import cors from "cors";
 import path from "path";
 import fs from "fs";
@@ -18,6 +19,7 @@ import type { TeeLogQuery, TeeLogService } from "@elizaos/plugin-tee-log";
 import { REST, Routes } from "discord.js";
 import type { DirectClient } from ".";
 import { validateUuid } from "@elizaos/core";
+import {generateNonce, SiweMessage} from "siwe";
 
 interface UUIDParams {
     agentId: UUID;
@@ -56,7 +58,14 @@ export function createApiRouter(
 ) {
     const router = express.Router();
 
-    router.use(cors());
+    const corsOptions = {
+        origin: [
+            'http://localhost:3001',
+            'http://ec2-18-156-78-210.eu-central-1.compute.amazonaws.com/'
+        ],
+        credentials: true,
+    };
+    router.use(cors(corsOptions));
     router.use(bodyParser.json());
     router.use(bodyParser.urlencoded({ extended: true }));
     router.use(
@@ -64,6 +73,27 @@ export function createApiRouter(
             limit: getEnvVariable("EXPRESS_MAX_PAYLOAD") || "100kb",
         })
     );
+
+    // @ts-ignore
+    router.use(Session({
+        name: 'one-on-one',
+        secret: "0xdeadbeef",
+        resave: false,
+        saveUninitialized: true,
+        cookie: {
+            httpOnly: true,
+            // maxAge: 36000,
+            secure: false,
+            sameSite: false
+        },
+    }));
+
+    router.use((req, res, next) => {
+        console.log(req.path);
+
+        console.log(req.session);
+        next();
+    });
 
     router.get("/", (req, res) => {
         res.send("Welcome, this is the REST API!");
@@ -130,6 +160,56 @@ export function createApiRouter(
             res.status(204).json({ success: true });
         } else {
             res.status(404).json({ error: "Agent not found" });
+        }
+    });
+
+    router.get('/nonce', async function (req, res) {
+        req.session.nonce = generateNonce();
+        req.session.save();
+        res.setHeader('Content-Type', 'text/plain');
+        res.status(200).send(req.session.nonce);
+    });
+
+    router.post('/verify', async function (req, res) {
+        try {
+            if (!req.body.message) {
+                res.status(422).json({ message: 'Expected prepareMessage object as body.' });
+                return;
+            }
+
+            let SIWEObject = new SiweMessage(req.body.message);
+            const { data: message } = await SIWEObject.verify({ signature: req.body.signature, nonce: req.session.nonce });
+
+            req.session.siwe = message;
+            req.session.cookie.expires = new Date(message.expirationTime);
+            res.status(200).send(true)
+        } catch (e) {
+            req.session.siwe = null;
+            req.session.nonce = null;
+            console.error(e);
+            switch (e) {
+                // TODO: implement find ErrorTypes
+                // case ErrorTypes.EXPIRED_MESSAGE: {
+                //     req.session.save(() => res.status(440).json({ message: e.message }));
+                //     break;
+                // }
+                // case ErrorTypes.INVALID_SIGNATURE: {
+                //     req.session.save(() => res.status(422).json({ message: e.message }));
+                //     break;
+                // }
+                default: {
+                    req.session.save(() => res.status(500).json({ message: e.message }));
+                    break;
+                }
+            }
+        }
+    });
+
+    router.get("/is-signed-in", async (req, res) => {
+        if (!req.session.siwe) {
+            res.status(401).json(false);
+        } else {
+            res.status(200).json(true);
         }
     });
 

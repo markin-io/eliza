@@ -21,17 +21,20 @@
 	"dependencies": {
 		"@elizaos/core": "workspace:*",
 		"@elizaos/plugin-image-generation": "workspace:*",
-		"@elizaos/plugin-tee-verifiable-log": "workspace:*",
 		"@elizaos/plugin-tee-log": "workspace:*",
+		"@elizaos/plugin-tee-verifiable-log": "workspace:*",
 		"@types/body-parser": "1.19.5",
 		"@types/cors": "2.8.17",
 		"@types/express": "5.0.0",
+		"@types/express-session": "^1.18.1",
 		"body-parser": "1.20.3",
 		"cors": "2.8.5",
 		"discord.js": "14.16.3",
 		"express": "4.21.1",
+		"express-session": "^1.18.1",
 		"multer": "1.4.5-lts.1",
-		"openai": "4.73.0"
+		"openai": "4.73.0",
+		"siwe": "^2.0.0"
 	},
 	"devDependencies": {
 		"@types/multer": "^1.4.12",
