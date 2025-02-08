@@ -60,8 +60,9 @@ export function createApiRouter(
 
     const corsOptions = {
         origin: [
+            'http://localhost:3000',
             'http://localhost:3001',
-            'http://ec2-18-156-78-210.eu-central-1.compute.amazonaws.com/'
+            'http://ec2-18-156-78-210.eu-central-1.compute.amazonaws.com'
         ],
         credentials: true,
     };
