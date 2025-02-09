@@ -3,6 +3,7 @@ import cors from "cors";
 import express, { type Request as ExpressRequest } from "express";
 import multer from "multer";
 import { z } from "zod";
+import { ethers } from "ethers";
 import {
     type AgentRuntime,
     elizaLogger,
@@ -27,6 +28,9 @@ import * as fs from "fs";
 import * as path from "path";
 import { createVerifiableLogApiRouter } from "./verifiable-log-api.ts";
 import OpenAI from "openai";
+import contract_abi from "./contract_abi.json";
+import Session from "express-session";
+import {generateNonce, SiweMessage} from "siwe";
 
 const storage = multer.diskStorage({
     destination: (req, file, cb) => {
@@ -108,7 +112,15 @@ Response format should be formatted in a JSON block like this:
 \`\`\`
 `;
 
+declare module 'express-session' {
+    interface SessionData {
+        siwe: any;
+        nonce: any;
+    }
+}
+
 export class DirectClient {
+
     public app: express.Application;
     private agents: Map<string, AgentRuntime>; // container management
     private server: any; // Store server instance
@@ -123,7 +135,8 @@ export class DirectClient {
             origin: [
                 'http://localhost:3000',
                 'http://localhost:3001',
-                'http://ec2-18-156-78-210.eu-central-1.compute.amazonaws.com'
+                'http://ec2-18-156-78-210.eu-central-1.compute.amazonaws.com',
+                'https://oneonone.art'
             ],
             credentials: true,
         };
@@ -132,6 +145,27 @@ export class DirectClient {
 
         this.app.use(bodyParser.json());
         this.app.use(bodyParser.urlencoded({ extended: true }));
+
+        // @ts-ignore
+        this.app.use(Session({
+            name: 'one-on-one',
+            secret: "test",
+            resave: false,
+            saveUninitialized: true,
+            cookie: {
+                httpOnly: true,
+                maxAge: 36000,
+                secure: false,
+                sameSite: false
+            },
+        }));
+
+        this.app.use((req, res, next) => {
+            console.log("Method", req.path);
+
+            console.log(req.session);
+            next();
+        });
 
         // Serve both uploads and generated images
         this.app.use(
@@ -153,6 +187,56 @@ export class DirectClient {
         interface CustomRequest extends ExpressRequest {
             file?: Express.Multer.File;
         }
+
+        this.app.get('/nonce', async function (req, res) {
+            req.session.nonce = generateNonce();
+            req.session.save();
+            res.setHeader('Content-Type', 'text/plain');
+            res.status(200).send(req.session.nonce);
+        });
+
+        this.app.post('/verify', async function (req, res) {
+            try {
+                if (!req.body.message) {
+                    res.status(422).json({ message: 'Expected prepareMessage object as body.' });
+                    return;
+                }
+
+                let SIWEObject = new SiweMessage(req.body.message);
+                const { data: message } = await SIWEObject.verify({ signature: req.body.signature, nonce: req.session.nonce });
+
+                req.session.siwe = message;
+                req.session.cookie.expires = new Date(message.expirationTime);
+                res.status(200).send(true)
+            } catch (e) {
+                req.session.siwe = null;
+                req.session.nonce = null;
+                console.error(e);
+                switch (e) {
+                    // TODO: implement find ErrorTypes
+                    // case ErrorTypes.EXPIRED_MESSAGE: {
+                    //     req.session.save(() => res.status(440).json({ message: e.message }));
+                    //     break;
+                    // }
+                    // case ErrorTypes.INVALID_SIGNATURE: {
+                    //     req.session.save(() => res.status(422).json({ message: e.message }));
+                    //     break;
+                    // }
+                    default: {
+                        req.session.save(() => res.status(500).json({ message: e.message }));
+                        break;
+                    }
+                }
+            }
+        });
+
+        this.app.get("/is-signed-in", async (req, res) => {
+            if (!req.session.siwe) {
+                res.status(401).json(false);
+            } else {
+                res.status(200).json(true);
+            }
+        });
 
         // Update the route handler to use CustomRequest instead of express.Request
         this.app.post(
@@ -201,7 +285,49 @@ export class DirectClient {
             "/:agentId/message",
             upload.single("file"),
             async (req: express.Request, res: express.Response) => {
-                const agentId = req.params.agentId;
+                if (!req.session.siwe) {
+                    res.status(401).json(false);
+                }
+
+                let address = req.session.siwe;
+                const { agentId, tokenId, } = req.params;
+                elizaLogger.log("/message", agentId, tokenId, address);
+
+                {
+                    let provider = new ethers.AlchemyProvider("base", process.env.EVM_PROVIDER_URL);
+
+                    const nft_contract = new ethers.Contract(
+                        "0x65725931BF9d37d7e1b1CEb90928271B572829F4",
+                        contract_abi,
+                        provider
+                    );
+
+                    try {
+                        const expected_tokenId = await nft_contract.ownedId(address);
+                        if (tokenId != expected_tokenId) {
+                            // TODO: return message saying that you are not the owner of the token
+                            res.status(401).json(false);
+                        }
+                    } catch (error) {
+                        console.error("Error fetching ownedId:", error);
+                    }
+
+                    try {
+                        const tokenURI = await nft_contract.tokenURI(tokenId);
+
+                        /// Fetch the metadata from the tokenURI
+                        const response = await fetch(tokenURI);
+                        const metadata = await response.json();
+
+                        if (metadata.agent_id != agentId) {
+                            // TODO: return message saying that you are trying to access wrong agent
+                            res.status(401).json(false);
+                        }
+                    } catch (error) {
+                        console.error("Error fetching tokenURI:", error);
+                    }
+                }
+
                 const roomId = stringToUuid(
                     req.body.roomId ?? "default-room-" + agentId
                 );
